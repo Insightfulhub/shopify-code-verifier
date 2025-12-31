@@ -7,7 +7,7 @@ const path = require("path");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-/* ---------------- HARD CORS FIX (SHOPIFY SAFE) ---------------- */
+/* ---------------- CORS (SHOPIFY SAFE) ---------------- */
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header(
@@ -20,7 +20,7 @@ app.use((req, res, next) => {
   );
 
   if (req.method === "OPTIONS") {
-    return res.sendStatus(200); // PRE-FLIGHT RESPONSE
+    return res.sendStatus(200);
   }
 
   next();
@@ -30,12 +30,12 @@ app.use((req, res, next) => {
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-/* ---------------- BASIC TEST ---------------- */
+/* ---------------- HEALTH CHECK ---------------- */
 app.get("/", (req, res) => {
-  res.send("SERVER OK");
+  res.send("Code Verification Server Running");
 });
 
-/* ---------------- LOAD ALL CODES ---------------- */
+/* ---------------- LOAD ALL CODES FROM ALL FILES ---------------- */
 function loadAllCodes() {
   const folderPath = path.join(__dirname, "codes");
   if (!fs.existsSync(folderPath)) return [];
@@ -47,7 +47,9 @@ function loadAllCodes() {
     if (!file.endsWith(".xlsx")) return;
 
     const workbook = XLSX.readFile(path.join(folderPath, file));
-    const sheet = workbook.Sheets[workbook.SheetNames[0]];
+    const sheetName = workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
     rows.forEach(row => {
@@ -64,19 +66,25 @@ function loadAllCodes() {
   return allCodes;
 }
 
-/* ---------------- MARK CODE USED ---------------- */
-function markCodeAsUsed(code, file) {
+/* ---------------- MARK CODE AS USED + SAVE DETAILS ---------------- */
+function markCodeAsUsed(code, file, details) {
   const filePath = path.join(__dirname, "codes", file);
   const workbook = XLSX.readFile(filePath);
   const sheetName = workbook.SheetNames[0];
-  const rows = XLSX.utils.sheet_to_json(
-    workbook.Sheets[sheetName],
-    { defval: "" }
-  );
+  const sheet = workbook.Sheets[sheetName];
+
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+  const now = new Date();
+  const dateUsed = now.toISOString().slice(0, 19).replace("T", " ");
 
   rows.forEach(row => {
     if (String(row.code).trim() === code) {
       row.used = "YES";
+      row.name = details.name || "";
+      row.mobile = details.mobile || "";
+      row.source = details.purchaseSource || "";
+      row.date_used = dateUsed;
     }
   });
 
@@ -87,13 +95,21 @@ function markCodeAsUsed(code, file) {
 /* ---------------- VERIFY ROUTE ---------------- */
 app.post("/verify", (req, res) => {
   try {
-    const code = String(req.body.code || "").trim();
+    const { code, name, mobile, purchaseSource } = req.body;
+
     if (!code) {
-      return res.json({ success: false, message: "Code required" });
+      return res.json({
+        success: false,
+        message: "Code is required"
+      });
     }
 
+    const cleanCode = String(code).trim();
     const allCodes = loadAllCodes();
-    const found = allCodes.find(c => c.code === code && !c.used);
+
+    const found = allCodes.find(
+      c => c.code === cleanCode && !c.used
+    );
 
     if (!found) {
       return res.json({
@@ -102,33 +118,27 @@ app.post("/verify", (req, res) => {
       });
     }
 
-    markCodeAsUsed(code, found.file);
+    markCodeAsUsed(cleanCode, found.file, {
+      name,
+      mobile,
+      purchaseSource
+    });
 
     res.json({
       success: true,
-      message: "Product verified successfully",
-      source: found.file.replace(".xlsx", "")
+      message: "Product verified successfully"
     });
+
   } catch (err) {
     console.error("VERIFY ERROR:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
   }
 });
 
-// DOWNLOAD UPDATED EXCEL FILE
-app.get("/download/:filename", (req, res) => {
-  const fileName = req.params.filename;
-  const filePath = path.join(__dirname, "codes", fileName);
-
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).send("File not found");
-  }
-
-  res.download(filePath, fileName);
-});
-
-
-/* ---------------- START ---------------- */
+/* ---------------- START SERVER ---------------- */
 app.listen(PORT, () => {
-  console.log("SERVER STARTED ON PORT", PORT);
+  console.log(`Server running on port ${PORT}`);
 });
