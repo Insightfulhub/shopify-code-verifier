@@ -17,10 +17,9 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ---------------- UTIL: LOAD ALL CODES ---------------- */
+/* ---------------- LOAD ALL CODES FROM ALL FILES ---------------- */
 function loadAllCodes() {
   const folderPath = path.join(__dirname, "codes");
-
   if (!fs.existsSync(folderPath)) return [];
 
   const files = fs.readdirSync(folderPath);
@@ -33,15 +32,16 @@ function loadAllCodes() {
     const workbook = XLSX.readFile(filePath);
     const sheetName = workbook.SheetNames[0];
     const sheet = workbook.Sheets[sheetName];
-    const data = XLSX.utils.sheet_to_json(sheet);
 
-    data.forEach(row => {
+    const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+    rows.forEach(row => {
       if (!row.code) return;
 
       allCodes.push({
         code: String(row.code).trim(),
-        used: row.used === "YES",
-        file: file
+        used: String(row.used).trim().toUpperCase() === "YES",
+        file
       });
     });
   });
@@ -49,38 +49,47 @@ function loadAllCodes() {
   return allCodes;
 }
 
-/* ---------------- UTIL: MARK CODE AS USED ---------------- */
+/* ---------------- MARK CODE AS USED ---------------- */
 function markCodeAsUsed(code, fileName) {
   const filePath = path.join(__dirname, "codes", fileName);
 
   const workbook = XLSX.readFile(filePath);
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
-  const data = XLSX.utils.sheet_to_json(sheet);
 
-  data.forEach(row => {
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+
+  let updated = false;
+
+  rows.forEach(row => {
     if (String(row.code).trim() === code) {
       row.used = "YES";
+      updated = true;
     }
   });
 
-  const updatedSheet = XLSX.utils.json_to_sheet(data);
-  workbook.Sheets[sheetName] = updatedSheet;
+  if (!updated) return;
+
+  workbook.Sheets[sheetName] = XLSX.utils.json_to_sheet(rows);
   XLSX.writeFile(workbook, filePath);
 }
 
 /* ---------------- ROUTES ---------------- */
 
-/* HOME (optional) */
 app.get("/", (req, res) => {
   res.send("Code Verification Server Running");
 });
 
+/* DEBUG ROUTE (remove later if needed) */
+app.get("/debug", (req, res) => {
+  res.json(loadAllCodes().slice(0, 10));
+});
+
 /* VERIFY CODE */
 app.post("/verify", (req, res) => {
-  const { code, name, mobile, source } = req.body;
+  const inputCode = String(req.body.code || "").trim();
 
-  if (!code) {
+  if (!inputCode) {
     return res.json({
       success: false,
       message: "Code is required"
@@ -89,8 +98,11 @@ app.post("/verify", (req, res) => {
 
   const allCodes = loadAllCodes();
 
+  console.log("TOTAL CODES:", allCodes.length);
+  console.log("INPUT CODE:", inputCode);
+
   const found = allCodes.find(
-    c => c.code === String(code).trim() && c.used === false
+    c => c.code === inputCode && c.used === false
   );
 
   if (!found) {
@@ -100,7 +112,7 @@ app.post("/verify", (req, res) => {
     });
   }
 
-  markCodeAsUsed(code, found.file);
+  markCodeAsUsed(inputCode, found.file);
 
   res.json({
     success: true,
@@ -109,7 +121,7 @@ app.post("/verify", (req, res) => {
   });
 });
 
-/* ---------------- SERVER START ---------------- */
+/* ---------------- START SERVER ---------------- */
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
