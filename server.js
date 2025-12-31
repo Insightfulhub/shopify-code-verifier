@@ -7,6 +7,9 @@ const path = require("path");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+let CODE_CACHE = [];
+
+
 /* ---------------- CORS (SHOPIFY SAFE) ---------------- */
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
@@ -36,35 +39,36 @@ app.get("/", (req, res) => {
 });
 
 /* ---------------- LOAD ALL CODES FROM ALL FILES ---------------- */
-function loadAllCodes() {
+function loadAllCodesToCache() {
   const folderPath = path.join(__dirname, "codes");
-  if (!fs.existsSync(folderPath)) return [];
+  if (!fs.existsSync(folderPath)) return;
+
+  CODE_CACHE = [];
 
   const files = fs.readdirSync(folderPath);
-  let allCodes = [];
 
   files.forEach(file => {
     if (!file.endsWith(".xlsx")) return;
 
     const workbook = XLSX.readFile(path.join(folderPath, file));
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
-    rows.forEach(row => {
+    rows.forEach((row, index) => {
       if (!row.code) return;
 
-      allCodes.push({
+      CODE_CACHE.push({
         code: String(row.code).trim(),
         used: String(row.used).trim().toUpperCase() === "YES",
-        file
+        file,
+        rowIndex: index
       });
     });
   });
 
-  return allCodes;
+  console.log(`CACHE LOADED: ${CODE_CACHE.length} codes`);
 }
+
 
 /* ---------------- MARK CODE AS USED + SAVE DETAILS ---------------- */
 function markCodeAsUsed(code, file, details) {
@@ -96,18 +100,13 @@ function markCodeAsUsed(code, file, details) {
 app.post("/verify", (req, res) => {
   try {
     const { code, name, mobile, purchaseSource } = req.body;
+    const cleanCode = String(code || "").trim();
 
-    if (!code) {
-      return res.json({
-        success: false,
-        message: "Code is required"
-      });
+    if (!cleanCode) {
+      return res.json({ success: false, message: "Code required" });
     }
 
-    const cleanCode = String(code).trim();
-    const allCodes = loadAllCodes();
-
-    const found = allCodes.find(
+    const found = CODE_CACHE.find(
       c => c.code === cleanCode && !c.used
     );
 
@@ -118,6 +117,10 @@ app.post("/verify", (req, res) => {
       });
     }
 
+    // Mark in memory
+    found.used = true;
+
+    // Persist to Excel
     markCodeAsUsed(cleanCode, found.file, {
       name,
       mobile,
@@ -138,6 +141,7 @@ app.post("/verify", (req, res) => {
   }
 });
 
+
 // DOWNLOAD UPDATED EXCEL FILE
 app.get("/download/:filename", (req, res) => {
   const fileName = req.params.filename;
@@ -149,6 +153,8 @@ app.get("/download/:filename", (req, res) => {
 
   res.download(filePath, fileName);
 });
+
+loadAllCodesToCache();
 
 
 /* ---------------- START SERVER ---------------- */
