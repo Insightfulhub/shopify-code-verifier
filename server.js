@@ -3,17 +3,34 @@ const bodyParser = require("body-parser");
 const XLSX = require("xlsx");
 const fs = require("fs");
 const path = require("path");
-const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+/* ---------------- HARD CORS FIX (SHOPIFY SAFE) ---------------- */
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header(
+    "Access-Control-Allow-Headers",
+    "Origin, X-Requested-With, Content-Type, Accept"
+  );
+  res.header(
+    "Access-Control-Allow-Methods",
+    "GET, POST, OPTIONS"
+  );
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200); // PRE-FLIGHT RESPONSE
+  }
+
+  next();
+});
+
 /* ---------------- MIDDLEWARE ---------------- */
-app.use(cors({ origin: "*" }));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-/* ---------------- BASIC TEST ROUTE ---------------- */
+/* ---------------- BASIC TEST ---------------- */
 app.get("/", (req, res) => {
   res.send("SERVER OK");
 });
@@ -47,13 +64,15 @@ function loadAllCodes() {
   return allCodes;
 }
 
-/* ---------------- MARK CODE AS USED ---------------- */
+/* ---------------- MARK CODE USED ---------------- */
 function markCodeAsUsed(code, file) {
   const filePath = path.join(__dirname, "codes", file);
   const workbook = XLSX.readFile(filePath);
   const sheetName = workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  const rows = XLSX.utils.sheet_to_json(
+    workbook.Sheets[sheetName],
+    { defval: "" }
+  );
 
   rows.forEach(row => {
     if (String(row.code).trim() === code) {
@@ -68,16 +87,12 @@ function markCodeAsUsed(code, file) {
 /* ---------------- VERIFY ROUTE ---------------- */
 app.post("/verify", (req, res) => {
   try {
-    console.log("REQUEST BODY:", req.body);
-
     const code = String(req.body.code || "").trim();
     if (!code) {
       return res.json({ success: false, message: "Code required" });
     }
 
     const allCodes = loadAllCodes();
-    console.log("TOTAL CODES:", allCodes.length);
-
     const found = allCodes.find(c => c.code === code && !c.used);
 
     if (!found) {
@@ -92,15 +107,15 @@ app.post("/verify", (req, res) => {
     res.json({
       success: true,
       message: "Product verified successfully",
-      source: found.file
+      source: found.file.replace(".xlsx", "")
     });
   } catch (err) {
     console.error("VERIFY ERROR:", err);
-    res.status(500).json({ success: false, message: "Internal error" });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-/* ---------------- START SERVER ---------------- */
+/* ---------------- START ---------------- */
 app.listen(PORT, () => {
   console.log("SERVER STARTED ON PORT", PORT);
 });
