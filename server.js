@@ -3,21 +3,22 @@ const bodyParser = require("body-parser");
 const XLSX = require("xlsx");
 const fs = require("fs");
 const path = require("path");
+const cors = require("cors");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 /* ---------------- MIDDLEWARE ---------------- */
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(cors({ origin: "*" }));
 app.use(bodyParser.json());
-app.use(express.static("public"));
+app.use(bodyParser.urlencoded({ extended: true }));
 
-app.use((req, res, next) => {
-  res.setHeader("X-Frame-Options", "ALLOWALL");
-  next();
+/* ---------------- BASIC TEST ROUTE ---------------- */
+app.get("/", (req, res) => {
+  res.send("SERVER OK");
 });
 
-/* ---------------- LOAD ALL CODES FROM ALL FILES ---------------- */
+/* ---------------- LOAD ALL CODES ---------------- */
 function loadAllCodes() {
   const folderPath = path.join(__dirname, "codes");
   if (!fs.existsSync(folderPath)) return [];
@@ -28,11 +29,8 @@ function loadAllCodes() {
   files.forEach(file => {
     if (!file.endsWith(".xlsx")) return;
 
-    const filePath = path.join(folderPath, file);
-    const workbook = XLSX.readFile(filePath);
-    const sheetName = workbook.SheetNames[0];
-    const sheet = workbook.Sheets[sheetName];
-
+    const workbook = XLSX.readFile(path.join(folderPath, file));
+    const sheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
 
     rows.forEach(row => {
@@ -50,78 +48,59 @@ function loadAllCodes() {
 }
 
 /* ---------------- MARK CODE AS USED ---------------- */
-function markCodeAsUsed(code, fileName) {
-  const filePath = path.join(__dirname, "codes", fileName);
-
+function markCodeAsUsed(code, file) {
+  const filePath = path.join(__dirname, "codes", file);
   const workbook = XLSX.readFile(filePath);
   const sheetName = workbook.SheetNames[0];
   const sheet = workbook.Sheets[sheetName];
-
   const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
-
-  let updated = false;
 
   rows.forEach(row => {
     if (String(row.code).trim() === code) {
       row.used = "YES";
-      updated = true;
     }
   });
-
-  if (!updated) return;
 
   workbook.Sheets[sheetName] = XLSX.utils.json_to_sheet(rows);
   XLSX.writeFile(workbook, filePath);
 }
 
-/* ---------------- ROUTES ---------------- */
-
-app.get("/", (req, res) => {
-  res.send("Code Verification Server Running");
-});
-
-/* DEBUG ROUTE (remove later if needed) */
-app.get("/debug", (req, res) => {
-  res.json(loadAllCodes().slice(0, 10));
-});
-
-/* VERIFY CODE */
+/* ---------------- VERIFY ROUTE ---------------- */
 app.post("/verify", (req, res) => {
-  const inputCode = String(req.body.code || "").trim();
+  try {
+    console.log("REQUEST BODY:", req.body);
 
-  if (!inputCode) {
-    return res.json({
-      success: false,
-      message: "Code is required"
+    const code = String(req.body.code || "").trim();
+    if (!code) {
+      return res.json({ success: false, message: "Code required" });
+    }
+
+    const allCodes = loadAllCodes();
+    console.log("TOTAL CODES:", allCodes.length);
+
+    const found = allCodes.find(c => c.code === code && !c.used);
+
+    if (!found) {
+      return res.json({
+        success: false,
+        message: "Invalid or already used code"
+      });
+    }
+
+    markCodeAsUsed(code, found.file);
+
+    res.json({
+      success: true,
+      message: "Product verified successfully",
+      source: found.file
     });
+  } catch (err) {
+    console.error("VERIFY ERROR:", err);
+    res.status(500).json({ success: false, message: "Internal error" });
   }
-
-  const allCodes = loadAllCodes();
-
-  console.log("TOTAL CODES:", allCodes.length);
-  console.log("INPUT CODE:", inputCode);
-
-  const found = allCodes.find(
-    c => c.code === inputCode && c.used === false
-  );
-
-  if (!found) {
-    return res.json({
-      success: false,
-      message: "Invalid or already used code"
-    });
-  }
-
-  markCodeAsUsed(inputCode, found.file);
-
-  res.json({
-    success: true,
-    message: "Product verified successfully",
-    purchase_source: found.file.replace(".xlsx", "")
-  });
 });
 
 /* ---------------- START SERVER ---------------- */
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log("SERVER STARTED ON PORT", PORT);
 });
