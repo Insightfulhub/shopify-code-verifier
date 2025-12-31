@@ -138,6 +138,19 @@ app.post("/verify", (req, res) => {
   }
 });
 
+// DOWNLOAD UPDATED EXCEL FILE
+app.get("/download/:filename", (req, res) => {
+  const fileName = req.params.filename;
+  const filePath = path.join(__dirname, "codes", fileName);
+
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).send("File not found");
+  }
+
+  res.download(filePath, fileName);
+});
+
+
 /* ---------------- START SERVER ---------------- */
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
