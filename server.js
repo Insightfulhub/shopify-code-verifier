@@ -117,27 +117,26 @@ app.post("/verify", (req, res) => {
       });
     }
 
-    // Mark in memory
+    // MARK USED IN MEMORY FIRST (FAST)
     found.used = true;
 
-    // Persist to Excel
-    markCodeAsUsed(cleanCode, found.file, {
-      name,
-      mobile,
-      purchaseSource
-    });
-
+    // RESPOND TO USER IMMEDIATELY (CRITICAL FOR iOS)
     res.json({
       success: true,
       message: "Product verified successfully"
     });
 
+    // WRITE TO EXCEL AFTER RESPONSE (NON-BLOCKING)
+    setImmediate(() => {
+      markCodeAsUsed(cleanCode, found.file, {
+        name,
+        mobile,
+        purchaseSource
+      });
+    });
+
   } catch (err) {
     console.error("VERIFY ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: "Server error"
-    });
   }
 });
 
