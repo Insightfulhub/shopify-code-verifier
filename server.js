@@ -135,7 +135,9 @@ app.post("/verify", (req, res) => {
       });
     });
 
-
+  } catch (err) {
+    console.error("VERIFY ERROR:", err);
+  }
 });
 
 
